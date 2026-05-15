@@ -88,9 +88,14 @@ def build_dataloader(config):
     transform_train, transform_test = build_img_transforms(config)
     # transform_train = build_transform(config,is_train=True)
     # transform_test = build_transform(config,is_train=False)
-    train_sampler = DistributedRandomIdentitySampler(dataset.train,
-                                                     num_instances=config.DATA.NUM_INSTANCES,
-                                                     seed=config.SOLVER.SEED)
+    sampler_kwargs = {
+        "num_instances": config.DATA.NUM_INSTANCES,
+        "seed": config.SOLVER.SEED,
+    }
+    if not config.MODEL.DIST_TRAIN:
+        sampler_kwargs.update({"num_replicas": 1, "rank": 0})
+
+    train_sampler = DistributedRandomIdentitySampler(dataset.train, **sampler_kwargs)
     trainloader = DataLoaderX(dataset=ImageDataset(dataset.train, transform=transform_train),
                             sampler=train_sampler,
                             batch_size=config.DATA.BATCH_SIZE, num_workers=config.DATA.NUM_WORKERS,
@@ -167,5 +172,4 @@ def build_dataloader(config):
         )
 
         return trainloader, queryloader, galleryloader, dataset, train_sampler,val_loader,trainOriginalLoader
-
 

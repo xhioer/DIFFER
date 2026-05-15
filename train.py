@@ -38,7 +38,7 @@ if __name__ == '__main__':
 
     parser.add_argument("opts", help="Modify config options using the command-line", default=None,
                         nargs=argparse.REMAINDER)
-    parser.add_argument("--local-rank", default=0, type=int)
+    parser.add_argument("--local-rank", "--local_rank", default=0, type=int)
     parser.add_argument("--jobId", default=0, help="Job number to identify different runs", type=int)
     parser.add_argument("--loss", type=str)
     args = parser.parse_args()
