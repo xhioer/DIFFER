@@ -95,7 +95,7 @@ class BackgroundGenerator(threading.Thread):
 class DataLoaderX(DataLoader):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        local_rank = dist.get_rank()
+        local_rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
         self.stream = torch.cuda.Stream(local_rank)  # create a new cuda stream in each process
         self.local_rank = local_rank
 

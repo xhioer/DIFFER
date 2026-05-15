@@ -32,7 +32,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("opts", help="Modify config options using the command-line", default=None,
                         nargs=argparse.REMAINDER)
-    parser.add_argument("--local-rank", default=0, type=int)
+    parser.add_argument("--local-rank", "--local_rank", default=0, type=int)
     args = parser.parse_args()
 
     gradCamFlag=False
@@ -93,4 +93,3 @@ if __name__ == "__main__":
                     dataset,
                     val_loader=val_loader
                     )
-
