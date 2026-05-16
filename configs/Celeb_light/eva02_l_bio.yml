@@ -32,6 +32,5 @@ TEST:
   WEIGHT: ''
   FEAT_NORM: 'yes'
   TYPE: 'image_only'
-OUTPUT_DIR: './logs/celeb_light'
-
+OUTPUT_DIR: '/home/outputs/differ/celeb_light'
 

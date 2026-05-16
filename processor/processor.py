@@ -19,6 +19,13 @@ def unfreeze_parameters(model):
     for param in model.parameters():
         param.requires_grad = True    
 
+def is_main_process(cfg):
+    return (not cfg.MODEL.DIST_TRAIN) or dist.get_rank() == 0
+
+def save_model(model, path):
+    state_dict = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
+    torch.save(state_dict, path)
+
 def do_train(cfg,
              model,
              train_loader,
@@ -69,7 +76,11 @@ def do_train(cfg,
 
     scaler = amp.GradScaler()
     best_rank1 = -np.inf
-    best_epoch = 0
+    best_rank1_mAP = -np.inf
+    best_rank1_epoch = 0
+    best_mAP = -np.inf
+    best_mAP_rank1 = -np.inf
+    best_mAP_epoch = 0
     start_train_time = time.time()
     
     model.eval()
@@ -90,16 +101,16 @@ def do_train(cfg,
         logger.info("Test the model at the beginning of training")
         if cfg.DATA.DATASET == 'prcc':
             logger.info("Clothes changing setting")
-            rank1= test(cfg, model, evaluator_diff, val_loader, logger, device,epoch, train_writer)
+            rank1, mAP = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch, train_writer)
             logger.info("Standard setting")
             test(cfg, model, evaluator_same, val_loader_same, logger, device, epoch,  train_writer,test=True)
         elif cfg.DATA.DATASET == 'ltcc':
             logger.info("Clothes changing setting")
-            rank1 = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch,train_writer, ltcc=True)
+            rank1, mAP = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch,train_writer, ltcc=True)
             logger.info("Standard setting")
             test(cfg, model, evaluator_general, val_loader, logger, device, epoch, train_writer,test=True)
         else:
-            rank1= test(cfg, model, evaluator, val_loader, logger, device,epoch,train_writer)   
+            rank1, mAP = test(cfg, model, evaluator, val_loader, logger, device,epoch,train_writer)   
     
 
     for epoch in range(cfg.TRAIN.START_EPOCH, epochs + 1):
@@ -187,30 +198,40 @@ def do_train(cfg,
             model.eval()
             if cfg.DATA.DATASET == 'prcc':
                 logger.info("Clothes changing setting")
-                rank1= test(cfg, model, evaluator_diff, val_loader, logger, device,epoch, train_writer)
+                rank1, mAP = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch, train_writer)
                 logger.info("Standard setting")
                 test(cfg, model, evaluator_same, val_loader_same, logger, device, epoch,  train_writer,test=True)
             elif cfg.DATA.DATASET == 'ltcc':
                 logger.info("Clothes changing setting")
-                rank1 = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch,train_writer, ltcc=True)
+                rank1, mAP = test(cfg, model, evaluator_diff, val_loader, logger, device,epoch,train_writer, ltcc=True)
                 logger.info("Standard setting")
                 test(cfg, model, evaluator_general, val_loader, logger, device, epoch, train_writer,test=True)
             else:
-                rank1= test(cfg, model, evaluator, val_loader, logger, device,epoch,train_writer)
-            is_best = rank1 > best_rank1
-            if is_best:
+                rank1, mAP = test(cfg, model, evaluator, val_loader, logger, device,epoch,train_writer)
+            if rank1 > best_rank1:
                 best_rank1 = rank1
-                best_epoch = epoch
-                logger.info("==> Best Rank-1 {:.1%}, achieved at epoch {}".format(best_rank1, best_epoch))
-                if cfg.MODEL.DIST_TRAIN:
-                    if dist.get_rank() == 0:
-                        torch.save(model.state_dict(),
-                                   os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_best.pth'))
-                        logger.info("Save the best model")
+                best_rank1_mAP = mAP
+                best_rank1_epoch = epoch
+                logger.info("==> Best Rank-1 {:.1%}, mAP {:.1%}, achieved at epoch {}".format(
+                    best_rank1, best_rank1_mAP, best_rank1_epoch))
+                if is_main_process(cfg):
+                    save_model(model, os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_best.pth'))
+                    logger.info("Save the best Rank-1 model")
+            if mAP > best_mAP:
+                best_mAP = mAP
+                best_mAP_rank1 = rank1
+                best_mAP_epoch = epoch
+                logger.info("==> Best mAP {:.1%}, Rank-1 {:.1%}, achieved at epoch {}".format(
+                    best_mAP, best_mAP_rank1, best_mAP_epoch))
+                if is_main_process(cfg):
+                    save_model(model, os.path.join(cfg.OUTPUT_DIR, cfg.MODEL.NAME + '_best_map.pth'))
+                    logger.info("Save the best mAP model")
 
-    if cfg.MODEL.DIST_TRAIN:
-        if dist.get_rank() == 0:
-            logger.info("==> Best Rank-1 {:.1%}, achieved at epoch {}".format(best_rank1, best_epoch))
+    if is_main_process(cfg):
+        logger.info("==> Best Rank-1 {:.1%}, mAP {:.1%}, achieved at epoch {}".format(
+            best_rank1, best_rank1_mAP, best_rank1_epoch))
+        logger.info("==> Best mAP {:.1%}, Rank-1 {:.1%}, achieved at epoch {}".format(
+            best_mAP, best_mAP_rank1, best_mAP_epoch))
 
     total_time = time.time() - start_train_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -294,7 +315,7 @@ def test(cfg, model, evaluator, val_loader, logger, device, epoch=None, test_wri
     rank1 = cmc[0] 
     if test :
         torch.cuda.empty_cache()
-        return rank1  
+        return rank1, mAP  
    
     
     logger.info("Validation Results - Epoch: {}".format(epoch))
@@ -304,4 +325,4 @@ def test(cfg, model, evaluator, val_loader, logger, device, epoch=None, test_wri
     test_writer.add_scalar('rank1', rank1, epoch)
     test_writer.add_scalar('mAP', mAP, epoch)
     torch.cuda.empty_cache()
-    return rank1
+    return rank1, mAP
