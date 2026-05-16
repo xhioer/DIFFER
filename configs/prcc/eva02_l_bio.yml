@@ -37,6 +37,5 @@ TEST:
   WEIGHT: ''
   FEAT_NORM: 'yes'
   TYPE: 'image_only'
-OUTPUT_DIR: './logs/prcc'
-
+OUTPUT_DIR: '/home/outputs/differ/prcc'
 
